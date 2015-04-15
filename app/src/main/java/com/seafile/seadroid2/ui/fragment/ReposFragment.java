@@ -1,14 +1,13 @@
 package com.seafile.seadroid2.ui.fragment;
 
-import java.io.File;
 import java.net.HttpURLConnection;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import android.app.Activity;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -18,7 +17,6 @@ import android.widget.ListView;
 import android.widget.TextView;
 
 import com.actionbarsherlock.app.SherlockListFragment;
-import com.google.common.collect.Lists;
 import com.seafile.seadroid2.CertsManager;
 import com.seafile.seadroid2.ConcurrentAsyncTask;
 import com.seafile.seadroid2.NavContext;
@@ -31,7 +29,9 @@ import com.seafile.seadroid2.data.SeafDirent;
 import com.seafile.seadroid2.data.SeafGroup;
 import com.seafile.seadroid2.data.SeafItem;
 import com.seafile.seadroid2.data.SeafRepo;
+import com.seafile.seadroid2.transfer.TransferService;
 import com.seafile.seadroid2.ui.PullToRefreshListView;
+import com.seafile.seadroid2.ui.ToastUtils;
 import com.seafile.seadroid2.ui.activity.BrowserActivity;
 import com.seafile.seadroid2.ui.adapter.SeafItemAdapter;
 import com.seafile.seadroid2.ui.dialog.SslConfirmDialog;
@@ -59,6 +59,9 @@ public class ReposFragment extends SherlockListFragment {
     private View mProgressContainer;
     private View mListContainer;
     private TextView mErrorText;
+
+    private boolean isTimerStarted;
+    private final Handler mTimer = new Handler();
 
     private DataManager getDataManager() {
         return mActivity.getDataManager();
@@ -129,6 +132,7 @@ public class ReposFragment extends SherlockListFragment {
     public void onStop() {
         Log.d(DEBUG_TAG, "ReposFragment onStop");
         super.onStop();
+        stopTimer();
     }
 
     @Override
@@ -180,6 +184,8 @@ public class ReposFragment extends SherlockListFragment {
     }
 
     public void navToReposView(boolean forceRefresh) {
+        //stopTimer();
+
         mPullToRefreshStopRefreshing ++;
 
         if (mPullToRefreshStopRefreshing >1) {
@@ -205,6 +211,8 @@ public class ReposFragment extends SherlockListFragment {
     }
 
     public void navToDirectory(boolean forceRefresh) {
+        startTimer();
+
         mPullToRefreshStopRefreshing ++;
 
         if (mPullToRefreshStopRefreshing > 1) {
@@ -248,7 +256,45 @@ public class ReposFragment extends SherlockListFragment {
                 nav.getRepoID(),
                 nav.getDirPath());
     }
-    
+
+    // refresh list by mTimer
+    public void startTimer() {
+        if (isTimerStarted)
+            return;
+
+        isTimerStarted = true;
+        Log.d(DEBUG_TAG, "timer started");
+        mTimer.postDelayed(new Runnable() {
+
+            @Override
+            public void run() {
+                TransferService ts = mActivity.getTransferService();
+                String repoID = mActivity.getCurrentRepoID();
+                String repoName = mActivity.getCurrentRepoName();
+                String currentDir = mActivity.getCurrentDir();
+
+                adapter.setDownloadTaskList(ts.getDownloadTaskInfosByPath(repoID, currentDir));
+
+                int downloadingCount = ts.getDownloadingFileCountByPath(repoID, currentDir);
+                long downloadedSize = ts.getDownloadedSizeByPath(repoID, currentDir);
+                mActivity.notifyDownloadProgress(repoName, currentDir, downloadingCount, downloadedSize);
+
+                int uploadingCount = ts.getUploadingFileCountByPath(repoID, currentDir);
+                long uploadedSize = ts.getUploadedSizeByPath(repoID, currentDir);
+                mActivity.notifyUploadProgress(repoName, currentDir, uploadingCount, uploadedSize);
+
+                // Log.d(DEBUG_TAG, "timer post refresh signal " + System.currentTimeMillis());
+                mTimer.postDelayed(this, 1 * 1000);
+            }
+        }, 1 * 1000);
+    }
+
+    public void stopTimer() {
+        Log.d(DEBUG_TAG, "timer stopped");
+        mTimer.removeCallbacksAndMessages(null);
+        isTimerStarted = false;
+    }
+
     /**
      * calculate if repo refresh time is expired, the expiration is 10 mins 
      */
@@ -300,13 +346,6 @@ public class ReposFragment extends SherlockListFragment {
             final String repoName = nav.getRepoName();
             final String repoID = nav.getRepoID();
             final String dirPath = nav.getDirPath();
-            // scheduleThumbnailTask(repoName, repoID, dirPath, dirents);
-            ConcurrentAsyncTask.execute(new Runnable() {
-                @Override
-                public void run() {
-                    scheduleThumbnailTask(repoName, repoID, dirPath, dirents);
-                }
-            });
 
             adapter.notifyChanged();
             mPullRefreshListView.setVisibility(View.VISIBLE);
@@ -657,7 +696,7 @@ public class ReposFragment extends SherlockListFragment {
                 if (err.getCode() == SeafConnection.HTTP_STATUS_REPO_PASSWORD_REQUIRED) {
                     showPasswordDialog();
                 } else if (err.getCode() == HttpURLConnection.HTTP_NOT_FOUND) {
-                    mActivity.showToast(String.format("The folder \"%s\" was deleted", myPath));
+                    ToastUtils.show(mActivity, String.format("The folder \"%s\" was deleted", myPath));
                 } else {
                     Log.d(DEBUG_TAG, "failed to load dirents: " + err.getMessage());
                     err.printStackTrace();
@@ -688,64 +727,4 @@ public class ReposFragment extends SherlockListFragment {
             }
         });
     }
-
-    private void scheduleThumbnailTask(String repoName, String repoID,
-            String path, List<SeafDirent> dirents) {
-        ArrayList<SeafDirent> needThumb = Lists.newArrayList();
-        for (SeafDirent dirent : dirents) {
-            if (dirent.isDir())
-                continue;
-            if (Utils.isViewableImage(dirent.name)) {
-                String p = Utils.pathJoin(path, dirent.name);
-                File file = mActivity.getDataManager().getLocalRepoFile(repoName, repoID, p);
-                if (file.exists()) {
-                    // if (file.length() > 1000000)
-                    //     continue;
-
-                    File thumb = DataManager.getThumbFile(dirent.id);
-                    if (!thumb.exists())
-                        needThumb.add(dirent);
-                }
-            }
-        }
-        if (needThumb.size() != 0) {
-            ConcurrentAsyncTask.execute(new ThumbnailTask(repoName, repoID, path, needThumb));
-        }
-    }
-
-    private class ThumbnailTask extends AsyncTask<Void, Void, Void > {
-
-        List<SeafDirent> dirents;
-        private String repoName;
-        private String repoID;
-        private String dir;
-
-        public ThumbnailTask(String repoName, String repoID, String dir, List<SeafDirent> dirents) {
-            this.dirents = dirents;
-            this.repoName = repoName;
-            this.repoID = repoID;
-            this.dir = dir;
-        }
-
-        @Override
-        protected Void doInBackground(Void... params) {
-            for (SeafDirent dirent : dirents) {
-                String path = Utils.pathJoin(dir, dirent.name);
-                mActivity.getDataManager().calculateThumbnail(repoName, repoID, path, dirent.id);
-            }
-            return null;
-        }
-
-        // onPostExecute displays the results of the AsyncTask.
-        @Override
-        protected void onPostExecute(Void v) {
-            if (mActivity == null)
-                // this occurs if user navigation to another activity
-                return;
-
-            adapter.notifyChanged();
-        }
-
-    }
-
 }

@@ -1,6 +1,5 @@
 package com.seafile.seadroid2.ui.activity;
 
-import android.content.Context;
 import android.content.Intent;
 import android.net.http.SslError;
 import android.os.Bundle;
@@ -17,13 +16,13 @@ import com.actionbarsherlock.app.SherlockFragmentActivity;
 import com.seafile.seadroid2.R;
 import com.seafile.seadroid2.account.Account;
 import com.seafile.seadroid2.account.AccountManager;
+import com.seafile.seadroid2.ui.ToastUtils;
 import com.seafile.seadroid2.util.Utils;
 
 /**
  * Shibboleth Authorize page
  * use cookie to get authorized data
  * <p/>
- * Created by Logan on 14/12/23.
  */
 public class ShibbolethAuthorizeActivity extends SherlockFragmentActivity {
     public static final String DEBUG_TAG = "ShibbolethAuthorizeActivity";
@@ -57,7 +56,7 @@ public class ShibbolethAuthorizeActivity extends SherlockFragmentActivity {
         Log.d(DEBUG_TAG, "server url is " + url);
 
         if (!Utils.isNetworkOn()) {
-            showToast(getString(R.string.network_down));
+            ToastUtils.show(this, getString(R.string.network_down));
             return;
         }
 
@@ -190,12 +189,6 @@ public class ShibbolethAuthorizeActivity extends SherlockFragmentActivity {
             }
         }
         return CookieValue;
-    }
-
-    public void showToast(CharSequence msg) {
-        Context context = getApplicationContext();
-        Toast toast = Toast.makeText(context, msg, Toast.LENGTH_SHORT);
-        toast.show();
     }
 
 }

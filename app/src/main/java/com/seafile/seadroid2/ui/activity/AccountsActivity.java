@@ -38,6 +38,7 @@ import com.seafile.seadroid2.avatar.AvatarManager;
 import com.seafile.seadroid2.monitor.FileMonitorService;
 import com.seafile.seadroid2.ui.SeafileStyleDialogBuilder;
 import com.seafile.seadroid2.ui.adapter.AccountAdapter;
+import com.seafile.seadroid2.ui.adapter.SeafAccountAdapter;
 import com.seafile.seadroid2.util.Utils;
 
 
@@ -88,7 +89,7 @@ public class AccountsActivity extends SherlockFragmentActivity {
         });
         accountsView.addFooterView(footerView, null, true);
         accountsView.setFooterDividersEnabled(false);
-        adapter = new AccountAdapter(this);
+        adapter = new SeafAccountAdapter(this);
         accountsView.setAdapter(adapter);
         accountsView.setOnItemClickListener(new OnItemClickListener() {
             public void onItemClick(AdapterView<?> parent, View view, int position,
@@ -235,6 +236,15 @@ public class AccountsActivity extends SherlockFragmentActivity {
 
     @Override
     public void onBackPressed() {
+        Account account = accountManager.getCurrentAccount();
+        if (account == null) {
+            // force exit when current account was deleted
+            Intent i = new Intent();
+            i.setAction(Intent.ACTION_MAIN);
+            i.addCategory(Intent.CATEGORY_HOME);
+            startActivity(i);
+            finish();
+        }
         super.onBackPressed();
     }
 
@@ -267,7 +277,7 @@ public class AccountsActivity extends SherlockFragmentActivity {
                                         break;
                                     case CLOUD_SEAFILE_COM:
                                         intent = new Intent(getActivity(), AccountDetailActivity.class);
-                                        intent.putExtra("server", "https://cloud.seafile.com");
+                                        intent.putExtra("server", "https://cloud.mein-seafile.de");
                                         startActivity(intent);
                                         break;
                                     case SHIBBOLETH_LOGIN:
@@ -289,6 +299,26 @@ public class AccountsActivity extends SherlockFragmentActivity {
      * @param avatarSize set a avatar size in one of 24*24, 32*32, 48*48, 64*64, 72*72, 96*96
      */
     public void loadAvatarUrls(int avatarSize) {
+        List<Avatar> avatars;
+
+        if (!Utils.isNetworkOn() || !avatarManager.isNeedToLoadNewAvatars()) {
+            // Toast.makeText(AccountsActivity.this, getString(R.string.network_down), Toast.LENGTH_SHORT).show();
+
+            // use cached avatars
+            avatars = avatarManager.getAvatarList();
+
+            if (avatars == null) {
+                return;
+            }
+
+            // set avatars url to adapter
+            adapter.setAvatars((ArrayList<Avatar>) avatars);
+
+            // notify adapter data changed
+            adapter.notifyDataSetChanged();
+
+            return;
+        }
 
         LoadAvatarUrlsTask task = new LoadAvatarUrlsTask(avatarSize);
 
@@ -298,15 +328,8 @@ public class AccountsActivity extends SherlockFragmentActivity {
 
     private class LoadAvatarUrlsTask extends AsyncTask<Void, Void, List<Avatar>> {
 
-        private static final int LOAD_AVATAR_FAILED_UNKNOW_ERROR = 0;
-        private static final int LOAD_AVATAR_FAILED_NETWORK_DOWN = 1;
-        private static final int LOAD_AVATAR_SUCCESSFULLY = 2;
-        private static final int LOAD_AVATAR_USE_CACHE = 3;
-
-        private int loadAvatarStatus = -1;
-
-        private int avatarSize;
         private List<Avatar> avatars;
+        private int avatarSize;
         private SeafConnection httpConnection;
 
         public LoadAvatarUrlsTask(int avatarSize) {
@@ -316,20 +339,9 @@ public class AccountsActivity extends SherlockFragmentActivity {
 
         @Override
         protected List<Avatar> doInBackground(Void... params) {
-
-            if (!Utils.isNetworkOn()) {
-                // use cached avatars
-                avatars = avatarManager.getAvatarList();
-                loadAvatarStatus = LOAD_AVATAR_FAILED_NETWORK_DOWN;
-                return avatars;
-            }
-
+            // reuse cached avatars
             avatars = avatarManager.getAvatarList();
 
-            if (!avatarManager.isNeedToLoadNewAvatars()) {
-                loadAvatarStatus = LOAD_AVATAR_USE_CACHE;
-                return avatars;
-            }
             // contains accounts who don`t have avatars yet
             List<Account> acts = avatarManager.getAccountsWithoutAvatars();
 
@@ -344,19 +356,20 @@ public class AccountsActivity extends SherlockFragmentActivity {
                 try {
                     avatarRawData = httpConnection.getAvatar(account.getEmail(), avatarSize);
                 } catch (SeafException e) {
-                    loadAvatarStatus = LOAD_AVATAR_FAILED_UNKNOW_ERROR;
+                    e.printStackTrace();
                     return avatars;
                 }
 
                 Avatar avatar = avatarManager.parseAvatar(avatarRawData);
+                if (avatar == null)
+                    continue;
+
                 avatar.setSignature(account.getSignature());
 
                 avatars.add(avatar);
 
                 newAvatars.add(avatar);
             }
-
-            loadAvatarStatus = LOAD_AVATAR_SUCCESSFULLY;
 
             // save new added avatars to database
             avatarManager.saveAvatarList(newAvatars);
@@ -375,22 +388,6 @@ public class AccountsActivity extends SherlockFragmentActivity {
 
             // notify adapter data changed
             adapter.notifyDataSetChanged();
-
-            switch (loadAvatarStatus) {
-                case LOAD_AVATAR_FAILED_NETWORK_DOWN:
-                    Toast.makeText(AccountsActivity.this, getString(R.string.network_down), Toast.LENGTH_SHORT).show();
-                    break;
-                case LOAD_AVATAR_FAILED_UNKNOW_ERROR:
-                    Toast.makeText(AccountsActivity.this, getString(R.string.unknow_error), Toast.LENGTH_SHORT).show();
-                    break;
-                case LOAD_AVATAR_USE_CACHE:
-                    break;
-                case LOAD_AVATAR_SUCCESSFULLY:
-                    break;
-                default:
-                    break;
-            }
-
         }
     }
 

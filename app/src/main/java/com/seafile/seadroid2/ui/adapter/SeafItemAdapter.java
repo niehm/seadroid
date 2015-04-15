@@ -1,15 +1,18 @@
 package com.seafile.seadroid2.ui.adapter;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
 
+import android.graphics.Bitmap;
+import android.widget.ProgressBar;
+import com.seafile.seadroid2.ui.AnimateFirstDisplayListener;
+import com.seafile.seadroid2.ui.WidgetUtils;
 import net.londatiga.android.ActionItem;
 import net.londatiga.android.QuickAction;
 import android.content.res.Resources;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnClickListener;
@@ -19,14 +22,21 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.google.common.collect.Lists;
+import com.nostra13.universalimageloader.core.DisplayImageOptions;
+import com.nostra13.universalimageloader.core.ImageLoader;
+import com.nostra13.universalimageloader.core.display.FadeInBitmapDisplayer;
+import com.nostra13.universalimageloader.core.listener.ImageLoadingListener;
+import com.nostra13.universalimageloader.core.listener.SimpleImageLoadingListener;
 import com.seafile.seadroid2.NavContext;
 import com.seafile.seadroid2.R;
+import com.seafile.seadroid2.SeadroidApplication;
 import com.seafile.seadroid2.data.DataManager;
 import com.seafile.seadroid2.data.SeafCachedFile;
 import com.seafile.seadroid2.data.SeafDirent;
 import com.seafile.seadroid2.data.SeafGroup;
 import com.seafile.seadroid2.data.SeafItem;
 import com.seafile.seadroid2.data.SeafRepo;
+import com.seafile.seadroid2.transfer.DownloadTaskInfo;
 import com.seafile.seadroid2.ui.activity.BrowserActivity;
 import com.seafile.seadroid2.util.Utils;
 
@@ -35,6 +45,9 @@ public class SeafItemAdapter extends BaseAdapter {
     private ArrayList<SeafItem> items;
     private BrowserActivity mActivity;
     private boolean repoIsEncrypted;
+
+    /** DownloadTask instance container **/
+    private List<DownloadTaskInfo> mDownloadTaskInfos;
 
     public SeafItemAdapter(BrowserActivity activity) {
         this.mActivity = activity;
@@ -49,6 +62,7 @@ public class SeafItemAdapter extends BaseAdapter {
     private static final int ACTION_ID_SHARE = 5;
     private static final int ACTION_ID_COPY = 6;
     private static final int ACTION_ID_MOVE = 7;
+    private static final int ACTION_ID_STAR = 8;
 
     @Override
     public int getCount() {
@@ -58,6 +72,30 @@ public class SeafItemAdapter extends BaseAdapter {
     @Override
     public boolean isEmpty() {
         return items.isEmpty();
+    }
+
+    /**
+     * To refresh downloading status of {@link com.seafile.seadroid2.ui.fragment.ReposFragment #mPullRefreshListView},
+     * use this method to update data set.
+     * <p>
+     * This method should be called after the download folder button was clicked.
+     * 
+     * @param newList
+     */
+    public void setDownloadTaskList(List<DownloadTaskInfo> newList) {
+
+        if (this.mDownloadTaskInfos == null || newList.size() != this.mDownloadTaskInfos.size()) {
+            this.mDownloadTaskInfos = newList;
+            notifyDataSetChanged();
+            return;
+        }
+        for (int i = 0; i < newList.size(); i++) {
+            if (!newList.get(i).equals(this.mDownloadTaskInfos.get(i))) {
+                break;
+            }
+        }
+        this.mDownloadTaskInfos = newList;
+        notifyDataSetChanged();
     }
 
     public void addEntry(SeafItem entry) {
@@ -129,18 +167,18 @@ public class SeafItemAdapter extends BaseAdapter {
             TextView subtitle = (TextView) view.findViewById(R.id.list_item_subtitle);
             ImageView icon = (ImageView) view.findViewById(R.id.list_item_icon);
             ImageView action = (ImageView) view.findViewById(R.id.list_item_action);
-            viewHolder = new Viewholder(title, subtitle, icon, action);
+            ImageView downloadStatusIcon = (ImageView) view.findViewById(R.id.list_item_download_status_icon);
+            ProgressBar progressBar = (ProgressBar) view.findViewById(R.id.list_item_download_status_progressbar);
+            viewHolder = new Viewholder(title, subtitle, icon, action, downloadStatusIcon, progressBar);
             view.setTag(viewHolder);
         } else {
             viewHolder = (Viewholder) convertView.getTag();
         }
-        viewHolder.title.setTextSize(16);
-        viewHolder.subtitle.setTextSize(12);
-        viewHolder.title.setPadding(12, 2, 10, 2);
-        viewHolder.subtitle.setPadding(12, 2, 10, 2);
+        viewHolder.downloadStatusIcon.setVisibility(View.GONE);
+        viewHolder.progressBar.setVisibility(View.GONE);
         viewHolder.title.setText(repo.getTitle());
         viewHolder.subtitle.setText(repo.getSubtitle());
-        viewHolder.icon.setImageResource(repo.getIcon());
+        ImageLoader.getInstance().displayImage("drawable://" + repo.getIcon(), viewHolder.icon, WidgetUtils.iconOptions);
         viewHolder.action.setVisibility(View.INVISIBLE);
         return view;
     }
@@ -162,7 +200,9 @@ public class SeafItemAdapter extends BaseAdapter {
             TextView subtitle = (TextView) view.findViewById(R.id.list_item_subtitle);
             ImageView icon = (ImageView) view.findViewById(R.id.list_item_icon);
             ImageView action = (ImageView) view.findViewById(R.id.list_item_action);
-            viewHolder = new Viewholder(title, subtitle, icon, action);
+            ImageView downloadStatusIcon = (ImageView) view.findViewById(R.id.list_item_download_status_icon);
+            ProgressBar progressBar = (ProgressBar) view.findViewById(R.id.list_item_download_status_progressbar);
+            viewHolder = new Viewholder(title, subtitle, icon, action, downloadStatusIcon, progressBar);
             view.setTag(viewHolder);
         } else {
             viewHolder = (Viewholder) convertView.getTag();
@@ -170,17 +210,34 @@ public class SeafItemAdapter extends BaseAdapter {
 
         viewHolder.title.setText(dirent.getTitle());
         if (dirent.isDir()) {
+            viewHolder.downloadStatusIcon.setVisibility(View.GONE);
+            viewHolder.progressBar.setVisibility(View.GONE);
+
             viewHolder.subtitle.setText(dirent.getSubtitle());
-            viewHolder.icon.setImageResource(dirent.getIcon());
+            ImageLoader.getInstance().displayImage("drawable://" + dirent.getIcon(), viewHolder.icon, WidgetUtils.iconOptions);
             viewHolder.action.setVisibility(View.VISIBLE);
             setDirAction(dirent, viewHolder, position);
         } else {
+            viewHolder.downloadStatusIcon.setVisibility(View.GONE);
             setFileView(dirent, viewHolder, position);
         }
 
         return view;
     }
 
+    /**
+     * use to refresh view of {@link com.seafile.seadroid2.ui.fragment.ReposFragment #mPullRefreshListView}
+     * <p>
+     * <h5>when to show download status icons</h5>
+     * if the dirent is a file and already cached, show cached icon.</br>
+     * if the dirent is a file and waiting to download, show downloading icon.</br>
+     * if the dirent is a file and is downloading, show indeterminate progressbar.</br>
+     * ignore directories and repos.</br>
+     * 
+     * @param dirent
+     * @param viewHolder
+     * @param position
+     */
     private void setFileView(SeafDirent dirent, Viewholder viewHolder, int position) {
         NavContext nav = mActivity.getNavContext();
         DataManager dataManager = mActivity.getDataManager();
@@ -196,51 +253,78 @@ public class SeafItemAdapter extends BaseAdapter {
             subtitle = dirent.getSubtitle();
             if (cf != null) {
                 cacheExists = true;
-                subtitle += "," + mActivity.getString(R.string.cached);
             }
+            // show file download finished
+            viewHolder.downloadStatusIcon.setVisibility(View.VISIBLE);
+            viewHolder.downloadStatusIcon.setImageResource(R.drawable.list_item_download_finished);
             viewHolder.subtitle.setText(subtitle);
-
-            if (Utils.isViewableImage(file.getName())) {
-                setImageThumbNail(file, dirent, dataManager, viewHolder);
-            } else
-                viewHolder.icon.setImageResource(dirent.getIcon());
+            viewHolder.progressBar.setVisibility(View.GONE);
 
         } else {
+            int downloadStatusIcon = R.drawable.list_item_download_waiting;
+            if (mDownloadTaskInfos != null) {
+                for (DownloadTaskInfo downloadTaskInfo : mDownloadTaskInfos) {
+                    // use repoID and path to identify the task
+                    if (downloadTaskInfo.repoID.equals(repoID)
+                            && downloadTaskInfo.pathInRepo.equals(filePath)) {
+                        switch (downloadTaskInfo.state) {
+                            case INIT:
+                            case CANCELLED:
+                            case FAILED:
+                                downloadStatusIcon = R.drawable.list_item_download_waiting;
+                                viewHolder.downloadStatusIcon.setVisibility(View.VISIBLE);
+                                viewHolder.progressBar.setVisibility(View.GONE);
+                                break;
+                            case TRANSFERRING:
+                                viewHolder.downloadStatusIcon.setVisibility(View.GONE);
+
+                                viewHolder.progressBar.setVisibility(View.VISIBLE);
+
+                                break;
+                            case FINISHED:
+                                downloadStatusIcon = R.drawable.list_item_download_finished;
+                                viewHolder.downloadStatusIcon.setVisibility(View.VISIBLE);
+                                viewHolder.progressBar.setVisibility(View.GONE);
+                                break;
+                            default:
+                                downloadStatusIcon = R.drawable.list_item_download_waiting;
+                                break;
+                        }
+                    }
+                }
+            } else {
+                viewHolder.downloadStatusIcon.setVisibility(View.GONE);
+                viewHolder.progressBar.setVisibility(View.GONE);
+            }
+
+            viewHolder.downloadStatusIcon.setImageResource(downloadStatusIcon);
             viewHolder.subtitle.setText(dirent.getSubtitle());
-            viewHolder.icon.setImageResource(dirent.getIcon());
+        }
+
+        if (Utils.isViewableImage(file.getName())) {
+            DisplayImageOptions options = new DisplayImageOptions.Builder()
+                    .extraForDownloader(dataManager.getAccount())
+                    .delayBeforeLoading(500)
+                    .resetViewBeforeLoading(true)
+                    .showImageOnLoading(R.drawable.file_image)
+                    .showImageForEmptyUri(R.drawable.file_image)
+                    .showImageOnFail(R.drawable.file_image)
+                    .cacheInMemory(true)
+                    .cacheOnDisk(true)
+                    .considerExifParams(true)
+                    .build();
+
+            ImageLoadingListener animateFirstListener = new AnimateFirstDisplayListener();
+            String url = dataManager.getThumbnailLink(repoName, repoID, filePath, getThumbnailWidth());
+            if (url == null) {
+                ImageLoader.getInstance().displayImage("drawable://" + dirent.getIcon(), viewHolder.icon, WidgetUtils.iconOptions);
+            } else
+                ImageLoader.getInstance().displayImage(url, viewHolder.icon, options, animateFirstListener);
+        } else {
+            ImageLoader.getInstance().displayImage("drawable://" + dirent.getIcon(), viewHolder.icon, WidgetUtils.iconOptions);
         }
 
         setFileAction(dirent, viewHolder, position, cacheExists);
-    }
-
-    private void setImageThumbNail(File file, SeafDirent dirent,
-            DataManager dataManager, Viewholder viewHolder) {
-        if (file.length() < DataManager.MAX_DIRECT_SHOW_THUMB) {
-            Bitmap imageBitmap = dataManager.getThumbnail(file);
-            if (imageBitmap != null)
-                viewHolder.icon.setImageBitmap(imageBitmap);
-            else
-                viewHolder.icon.setImageResource(dirent.getIcon());
-        } else {
-            File thumbFile = DataManager.getThumbFile(dirent.id);
-            if (thumbFile.exists()) {
-                Bitmap imageBitmap;
-                final int THUMBNAIL_SIZE = DataManager.caculateThumbnailSizeOfDevice();
-                try {
-                    // setImageURI does not work correctly under high screen density
-                    //viewHolder.icon.setScaleType(ImageView.ScaleType.FIT_XY);
-                    //viewHolder.icon.setImageURI(Uri.fromFile(thumbFile));
-                    imageBitmap = BitmapFactory.decodeStream(new FileInputStream(thumbFile));
-                    imageBitmap = Bitmap.createScaledBitmap(imageBitmap, THUMBNAIL_SIZE,
-                            THUMBNAIL_SIZE, false);
-                    viewHolder.icon.setImageBitmap(imageBitmap);
-                } catch (FileNotFoundException e) {
-                    viewHolder.icon.setImageResource(dirent.getIcon());
-                }
-            } else {
-                viewHolder.icon.setImageResource(dirent.getIcon());
-            }
-        }
     }
 
     private View getCacheView(SeafCachedFile item, View convertView, ViewGroup parent) {
@@ -253,15 +337,20 @@ public class SeafItemAdapter extends BaseAdapter {
             TextView subtitle = (TextView) view.findViewById(R.id.list_item_subtitle);
             ImageView icon = (ImageView) view.findViewById(R.id.list_item_icon);
             ImageView action = (ImageView) view.findViewById(R.id.list_item_action);
-            viewHolder = new Viewholder(title, subtitle, icon, action);
+            ImageView downloadStatusIcon = (ImageView) view.findViewById(R.id.list_item_download_status_icon);
+            ProgressBar progressBar = (ProgressBar) view.findViewById(R.id.list_item_download_status_progressbar);
+            viewHolder = new Viewholder(title, subtitle, icon, action, downloadStatusIcon, progressBar);
             view.setTag(viewHolder);
         } else {
             viewHolder = (Viewholder) convertView.getTag();
         }
 
+        viewHolder.downloadStatusIcon.setVisibility(View.VISIBLE);
+        viewHolder.downloadStatusIcon.setImageResource(R.drawable.list_item_download_finished);
+        viewHolder.progressBar.setVisibility(View.GONE);
         viewHolder.title.setText(item.getTitle());
         viewHolder.subtitle.setText(item.getSubtitle());
-        viewHolder.icon.setImageResource(item.getIcon());
+        ImageLoader.getInstance().displayImage("drawable://" + item.getIcon(), viewHolder.icon, WidgetUtils.iconOptions);
         viewHolder.action.setVisibility(View.INVISIBLE);
         return view;
     }
@@ -282,14 +371,17 @@ public class SeafItemAdapter extends BaseAdapter {
 
     private class Viewholder {
         TextView title, subtitle;
-        ImageView icon, action;
+        ImageView icon, action, downloadStatusIcon; // downloadStatusIcon used to show file downloading status, it is invisible by default
+        ProgressBar progressBar;
 
-        public Viewholder(TextView title, TextView subtitle, ImageView icon, ImageView action) {
+        public Viewholder(TextView title, TextView subtitle, ImageView icon, ImageView action, ImageView downloadStatusIcon, ProgressBar progressBar) {
             super();
             this.icon = icon;
             this.action = action;
             this.title = title;
             this.subtitle = subtitle;
+            this.downloadStatusIcon = downloadStatusIcon;
+            this.progressBar = progressBar;
         }
     }
 
@@ -329,7 +421,7 @@ public class SeafItemAdapter extends BaseAdapter {
         final QuickAction mQuickAction = new QuickAction(mActivity);
         Resources resources = mActivity.getResources();
         ActionItem shareAction, downloadAction, updateAction, exportAction, renameAction, deleteAction,
-               copyAction, moveAction;
+               copyAction, moveAction, starAction;
 
         if (!repoIsEncrypted) {
             shareAction = new ActionItem(ACTION_ID_SHARE,
@@ -378,6 +470,11 @@ public class SeafItemAdapter extends BaseAdapter {
             mQuickAction.addActionItem(downloadAction);
         }
 
+        starAction = new ActionItem(ACTION_ID_STAR,
+                resources.getString(R.string.file_action_star),
+                resources.getDrawable(R.drawable.action_star));
+        mQuickAction.addActionItem(starAction);
+
         //setup the action item click listener
         mQuickAction.setOnActionItemClickListener(new QuickAction.OnActionItemClickListener() {
             @Override
@@ -414,6 +511,9 @@ public class SeafItemAdapter extends BaseAdapter {
                     break;
                 case ACTION_ID_MOVE:
                     mActivity.moveFile(repoID, repoName, dir, filename, false);
+                    break;
+                case ACTION_ID_STAR:
+                    mActivity.starFile(repoID, dir, filename);
                     break;
                 }
             }
@@ -476,6 +576,10 @@ public class SeafItemAdapter extends BaseAdapter {
 
         mQuickAction.mAnimateTrack(false);
         return mQuickAction;
+    }
+
+    private int getThumbnailWidth() {
+        return (int) SeadroidApplication.getAppContext().getResources().getDimension(R.dimen.lv_icon_width);
     }
 
     public void setEncryptedRepo(boolean encrypted) {

@@ -1,5 +1,14 @@
 # Seafile Android Client [![Build Status](https://secure.travis-ci.org/haiwen/seadroid.png?branch=master)](http://travis-ci.org/haiwen/seadroid)
 
+The application has been published onto Google Play for easy access:
+
+[![Get it on Google Play](http://www.android.com/images/brand/get_it_on_play_logo_small.png)](https://play.google.com/store/apps/details?id=com.seafile.seadroid2)
+
+
+## Contributors
+
+See [Contributors Graph](https://github.com/haiwen/seadroid/graphs/contributors)
+
 ## Build the APK
 
 * cd into seadroid directory

@@ -2,6 +2,8 @@ package com.seafile.seadroid2.data;
 
 import java.util.Date;
 
+import android.util.Log;
+import com.seafile.seadroid2.util.Utils;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -16,7 +18,7 @@ public class SeafRepo implements SeafItem {
     public String name;
     public String description;
     public String owner;
-    public Date mtime;    // the last modification time
+    public long mtime;    // the last modification time
 
     public boolean isGroupRepo;
     public boolean encrypted;
@@ -25,27 +27,22 @@ public class SeafRepo implements SeafItem {
     public long    size;
     public String  root; // the id of root directory
 
-    static SeafRepo fromJson(JSONObject obj) {
+    static SeafRepo fromJson(JSONObject obj) throws JSONException{
         SeafRepo repo = new SeafRepo();
-        try {
-            repo.id = obj.getString("id");
-            repo.name = obj.getString("name");
-            repo.description = obj.getString("desc");
-            repo.owner = obj.getString("owner");
-            repo.permission = obj.getString("permission");
-            long mt = obj.getLong("mtime");
-            repo.mtime = new Date(mt);
-            repo.encrypted = obj.getBoolean("encrypted");
-            repo.root = obj.getString("root");
-            repo.size = obj.getLong("size");
-            if (obj.getString("type").equals("grepo")) {
-                repo.isGroupRepo = true;
-            } else
-                repo.isGroupRepo = false;
-            return repo;
-        } catch (JSONException e) {
-            return null;
-        }
+        repo.id = obj.getString("id");
+        repo.name = obj.getString("name");
+        repo.description = obj.getString("desc");
+        repo.owner = obj.getString("owner");
+        repo.permission = obj.getString("permission");
+        repo.mtime = obj.getLong("mtime");
+        repo.encrypted = obj.getBoolean("encrypted");
+        repo.root = obj.getString("root");
+        repo.size = obj.getLong("size");
+        if (obj.getString("type").equals("grepo")) {
+            repo.isGroupRepo = true;
+        } else
+            repo.isGroupRepo = false;
+        return repo;
     }
 
     public SeafRepo() {
@@ -70,7 +67,7 @@ public class SeafRepo implements SeafItem {
 
     @Override
     public String getSubtitle() {
-        return description;
+        return Utils.translateCommitTime(mtime * 1000);
     }
 
     @Override

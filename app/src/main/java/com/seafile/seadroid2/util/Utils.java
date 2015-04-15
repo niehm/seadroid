@@ -26,8 +26,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.TreeMap;
 
-import org.apache.commons.io.FileUtils;
+import android.os.Build;
+import android.provider.DocumentsContract;
+import android.provider.OpenableColumns;
+import android.text.TextUtils;
+import android.text.format.DateFormat;
+import android.view.View;
+import android.view.inputmethod.InputMethodManager;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
@@ -52,6 +59,8 @@ import com.seafile.seadroid2.fileschooser.SelectableFile;
 
 public class Utils {
     public static final String MIME_APPLICATION_OCTET_STREAM = "application/octet-stream";
+    public static final String AUTHORITY = "com.seafile.seadroid2";
+    public static final String PATH_SEPERATOR = "/";
     public static final String NOGROUP = "$nogroup";
     private static final String DEBUG_TAG = "Utils";
     private static final String HIDDEN_PREFIX = ".";
@@ -73,10 +82,24 @@ public class Utils {
         }
     }
 
+    public static JSONArray parseJsonArrayByKey(String json, String key) throws JSONException {
+        if (json == null) {
+            // the caller should not give null
+            Log.w(DEBUG_TAG, "null in parseJsonArrayByKey");
+            return null;
+        }
+
+        String value = new JSONObject(json).optString(key);
+        if (!TextUtils.isEmpty(value))
+            return parseJsonArray(value);
+        else
+            return null;
+    }
+
     public static JSONArray parseJsonArray(String json) {
         if (json == null) {
          // the caller should not give null
-            Log.w(DEBUG_TAG, "null in parseJsonObject");
+            Log.w(DEBUG_TAG, "null in parseJsonArray");
             return null;
         }
 
@@ -335,6 +358,10 @@ public class Utils {
         return a.replaceAll("^[/]*|[/]*$", "");
     }
 
+    public static String getCurrentHourMinute() {
+        return (String) DateFormat.format("hh:mm", new Date());
+    }
+
     /**
      * Translate commit time to human readable time description
      */
@@ -356,15 +383,15 @@ public class Utils {
             SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd");
             return fmt.format(d);
         } else if (days > 0) {
-            return days + SeadroidApplication.getAppContext().getString(R.string.days_ago);
+            return SeadroidApplication.getAppContext().getString(R.string.days_ago, days);
         } else if (seconds >= 60 * 60) {
             long hours = seconds / 3600;
-            return hours + SeadroidApplication.getAppContext().getString(R.string.hours_ago);
+            return SeadroidApplication.getAppContext().getString(R.string.hours_ago, hours);
         } else if (seconds >= 60) {
             long minutes = seconds / 60;
-            return minutes + SeadroidApplication.getAppContext().getString(R.string.minutes_ago);
+            return SeadroidApplication.getAppContext().getString(R.string.minutes_ago, minutes);
         } else if (seconds > 0) {
-            return seconds + SeadroidApplication.getAppContext().getString(R.string.seconds_ago);
+            return SeadroidApplication.getAppContext().getString(R.string.seconds_ago, seconds);
         } else {
             return SeadroidApplication.getAppContext().getString(R.string.just_now);
         }
@@ -473,7 +500,33 @@ public class Utils {
         intent.setType("*/*");
         // Only return URIs that can be opened with ContentResolver
         intent.addCategory(Intent.CATEGORY_OPENABLE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            // Allow user to select multiple files
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            // only show local document providers
+            intent.putExtra(Intent.EXTRA_LOCAL_ONLY, true);
+        }
         return intent;
+    }
+
+    public static String getFilenamefromUri(Context context, Uri uri) {
+
+        Cursor cursor = context.getContentResolver()
+                .query(uri, null, null, null, null);
+
+        if (cursor != null && cursor.moveToFirst()) {
+
+            // Note it's called "Display Name".  This is
+            // provider-specific, and might not necessarily be the file name.
+            String displayName = cursor.getString(
+                    cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+
+            cursor.close();
+            return displayName;
+        } else {
+            return "unknown filename";
+        }
     }
 
     public static String getPath(Context context, Uri uri) throws URISyntaxException {
@@ -570,6 +623,13 @@ public class Utils {
         fileOrDirectory.renameTo(renamedFile);
         renamedFile.delete();
 
+        // notify Android Gallery that this file is gone
+        notifyAndroidGalleryFileChange(fileOrDirectory);
+    }
+
+    public static void notifyAndroidGalleryFileChange(File file) {
+        Intent intent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(file));
+        SeadroidApplication.getAppContext().sendBroadcast(intent);
     }
 
     /**
@@ -595,4 +655,26 @@ public class Utils {
         return totalSize;
     }
 
+    public static String assembleUserName(String email, String server) {
+        if (email == null || server == null)
+            return null;
+
+        if (TextUtils.isEmpty(email) || TextUtils.isEmpty(server))
+            return "";
+
+        // strip port, like :8000 in 192.168.1.116:8000
+        if (server.indexOf(":") != -1)
+            server = server.substring(0, server.indexOf(':'));
+        String info = String.format("%s (%s)", email, server);
+        info = info.replaceAll("[^\\w\\d\\.@\\(\\) ]", "_");
+        return info;
+    }
+
+    public static void hideSoftKeyboard(View view) {
+        if (view == null)
+            return;
+        ((InputMethodManager) SeadroidApplication.getAppContext().getSystemService(
+                Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(
+                view.getWindowToken(), 0);
+    }
 }

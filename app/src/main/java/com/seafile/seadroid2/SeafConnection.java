@@ -9,7 +9,6 @@ import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.URLEncoder;
-import java.util.HashMap;
 import java.util.Map;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -203,6 +202,23 @@ public class SeafConnection {
         return result;
     }
 
+    public String getServerInfo() throws SeafException {
+
+        String result;
+        try {
+            HttpRequest  req = prepareApiGetRequest("api2/server-info/");
+            checkRequestResponseStatus(req, HttpURLConnection.HTTP_OK);
+            result = new String(req.bytes(), "UTF-8");
+        } catch (SeafException e) {
+            throw e;
+        } catch (HttpRequestException e) {
+            throw getSeafExceptionFromHttpRequestException(e);
+        } catch (IOException e) {
+            throw SeafException.networkException;
+        }
+        return result;
+    }
+
     public boolean doLogin() throws SeafException {
         try {
             return realLogin();
@@ -260,6 +276,30 @@ public class SeafConnection {
             throw SeafException.networkException;
         }
     }
+
+    public String searchLibraries(String query, int page) throws SeafException {
+
+        try {
+            Map<String, Object> params = Maps.newHashMap();
+            params.put("q", encodeUriComponent(query));
+
+            if (page > 0)
+                params.put("per_page", page);
+
+            HttpRequest req = prepareApiGetRequest("api2/search/", params);
+            checkRequestResponseStatus(req, HttpURLConnection.HTTP_OK);
+            String result = new String(req.bytes(), "UTF-8");
+            return result;
+        } catch (SeafException e) {
+            throw e;
+        } catch (HttpRequestException e) {
+            throw getSeafExceptionFromHttpRequestException(e);
+        } catch (IOException e) {
+            throw SeafException.networkException;
+        }
+
+    }
+
     private static String encodeUriComponent(String src) throws UnsupportedEncodingException {
         return URLEncoder.encode(src, "UTF-8");
     }
@@ -486,7 +526,7 @@ public class SeafConnection {
             if (msg != null)
                 Log.d(DEBUG_TAG, msg);
             else
-                Log.d(DEBUG_TAG, "get upload link error");
+                Log.d(DEBUG_TAG, "get upload link error", e);
             throw SeafException.unknownException;
         }
     }
@@ -857,6 +897,22 @@ public class SeafConnection {
             throw SeafException.encodingException;
         } catch (IOException e) {
             throw SeafException.networkException;
+        } catch (SeafException e) {
+            throw e;
+        } catch (HttpRequestException e) {
+            throw getSeafExceptionFromHttpRequestException(e);
+        }
+    }
+
+    public void star(String repoID, String path) throws SeafException {
+        try {
+            HttpRequest req = prepareApiPostRequest("api2/starredfiles/", true, null);
+
+            req.form("repo_id", repoID);
+            req.form("p", path);
+
+            checkRequestResponseStatus(req, HttpURLConnection.HTTP_CREATED);
+
         } catch (SeafException e) {
             throw e;
         } catch (HttpRequestException e) {
